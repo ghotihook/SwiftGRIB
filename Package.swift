@@ -17,6 +17,10 @@ let package = Package(
             name: "SwiftGrib",
             targets: ["SwiftGrib"]
         ),
+        .executable(
+            name: "SwiftGribDemo",
+            targets: ["SwiftGribDemo"]
+        ),
     ],
     targets: [
         .target(
@@ -24,6 +28,13 @@ let package = Package(
             dependencies: [],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
+        .executableTarget(
+            name: "SwiftGribDemo",
+            dependencies: ["SwiftGrib"],
+            resources: [
+                .copy("Resources")
             ]
         ),
         .testTarget(
