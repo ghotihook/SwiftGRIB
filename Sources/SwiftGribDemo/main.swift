@@ -61,11 +61,41 @@ do {
         }
     }
     
-    // Extract wind data
-    print("\n--- Wind Data Extraction ---")
+    // Timestamp analysis
+    print("\n--- Timestamp Analysis ---")
     let processor = WindProcessor()
     let timestamps = processor.availableTimestamps(in: messages)
     print("Available timestamps: \(timestamps.count)")
+    
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    
+    print("\nFirst 5 timestamps:")
+    for (i, ts) in timestamps.prefix(5).enumerated() {
+        print("  \(i+1). \(formatter.string(from: ts)) UTC")
+    }
+    if timestamps.count > 5 {
+        print("  ...")
+        print("  \(timestamps.count). \(formatter.string(from: timestamps.last!)) UTC")
+    }
+    
+    // Check time intervals
+    if timestamps.count >= 2 {
+        print("\nTime intervals:")
+        for i in 1..<min(4, timestamps.count) {
+            let interval = timestamps[i].timeIntervalSince(timestamps[i-1])
+            print("  Step \(i) -> \(i+1): \(Int(interval / 3600)) hours")
+        }
+        
+        if let first = timestamps.first, let last = timestamps.last {
+            let totalSpan = last.timeIntervalSince(first)
+            print("\nTotal time span: \(String(format: "%.1f", totalSpan / (24 * 3600))) days")
+        }
+    }
+    
+    // Extract wind data
+    print("\n--- Wind Data Extraction ---")
     
     let windData = processor.extractWindData(from: messages, sampleStep: 5)
     print("Extracted \(windData.count) wind data points (sampled every 5th point)")
