@@ -291,12 +291,14 @@ public final class GribParser: Sendable {
         let magnitude = Int16(((Int(byte4) & 0x7F) << 8) | Int(byte5))
         let binaryScale = isNegative ? -magnitude : magnitude
         
-        // Reference value (IEEE 754 float)
-        let refUInt32 = (UInt32(data[offset+6]) << 24) |
-                        (UInt32(data[offset+7]) << 16) |
-                        (UInt32(data[offset+8]) << 8) |
-                        UInt32(data[offset+9])
-        let referenceValue = Float(bitPattern: refUInt32)
+        // Reference value (IBM 32-bit floating point format, NOT IEEE 754)
+        // IBM format: 1 sign bit, 7-bit exponent (base 16, bias 64), 24-bit mantissa
+        let referenceValue = parseIBMFloat(
+            byte0: data[offset+6],
+            byte1: data[offset+7],
+            byte2: data[offset+8],
+            byte3: data[offset+9]
+        )
         
         let bitsPerValue = data[offset+10]
         
@@ -374,6 +376,34 @@ public final class GribParser: Sendable {
         let magnitude = ((Int(byte0 & 0x7F) << 16) | (Int(byte1) << 8) | Int(byte2))
         
         return Float(isNegative ? -magnitude : magnitude)
+    }
+    
+    /// Parse IBM 32-bit floating point format (used in GRIB1).
+    /// Format: 1 sign bit, 7-bit exponent (base 16, bias 64), 24-bit mantissa
+    private func parseIBMFloat(byte0: UInt8, byte1: UInt8, byte2: UInt8, byte3: UInt8) -> Float {
+        // Sign bit
+        let sign: Float = (byte0 & 0x80) != 0 ? -1.0 : 1.0
+        
+        // 7-bit exponent (biased by 64, base 16)
+        let exponent = Int(byte0 & 0x7F) - 64
+        
+        // 24-bit mantissa (fraction)
+        let mantissa = (UInt32(byte1) << 16) | (UInt32(byte2) << 8) | UInt32(byte3)
+        
+        // IBM float: value = sign * (mantissa / 2^24) * 16^exponent
+        // Which equals: sign * mantissa * 16^exponent / 2^24
+        // Since 16^exponent = 2^(4*exponent), this is:
+        // sign * mantissa * 2^(4*exponent - 24)
+        
+        if mantissa == 0 {
+            return 0.0
+        }
+        
+        // Calculate the value
+        let fraction = Float(mantissa) / Float(1 << 24)  // mantissa / 2^24
+        let value = sign * fraction * powf(16.0, Float(exponent))
+        
+        return value
     }
     
     private func makeTimestamp(pds: PDSInfo) -> Date {

@@ -29,7 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Product Definition Section (PDS)
 - Grid Definition Section (GDS) for lat/lon grids
 - Binary Data Section (BDS) with bit-packed data extraction
+- IBM 32-bit floating point format for reference values
 - Sign-magnitude encoding for coordinates and scale factors
+- Correct meteorological wind direction calculation (direction wind comes FROM)
 
 ### Not Yet Supported
 - GRIB Edition 2

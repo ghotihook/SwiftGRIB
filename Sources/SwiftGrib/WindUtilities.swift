@@ -169,14 +169,28 @@ public struct WindProcessor: Sendable {
     /// - Parameters:
     ///   - u: U-component (positive = eastward)
     ///   - v: V-component (positive = northward)
-    /// - Returns: Tuple of (speed in m/s, direction in degrees)
+    /// - Returns: Tuple of (speed in m/s, direction in degrees from 0-360)
+    ///
+    /// The direction uses meteorological convention: the direction the wind is coming FROM,
+    /// measured clockwise from North (0° = North, 90° = East, 180° = South, 270° = West).
     public func calculateWindSpeedAndDirection(u: Double, v: Double) -> (speed: Double, direction: Double) {
         let speed = sqrt(u * u + v * v)
         
+        // Handle zero wind case
+        if speed < 1e-10 {
+            return (0.0, 0.0)
+        }
+        
         // Calculate meteorological wind direction (where wind comes FROM)
-        // atan2 gives direction wind is going TO, so we add 180°
-        var direction = atan2(v, u) * 180.0 / .pi
-        direction = fmod(270.0 - direction, 360.0)
+        // atan2(-u, -v) gives the angle in radians from North, measured clockwise
+        // This is because:
+        // - Wind FROM North (u=0, v<0): atan2(0, v) = 0° 
+        // - Wind FROM East (u<0, v=0): atan2(u, 0) = 90°
+        // - Wind FROM South (u=0, v>0): atan2(0, -v) = 180°
+        // - Wind FROM West (u>0, v=0): atan2(-u, 0) = 270°
+        var direction = atan2(-u, -v) * 180.0 / .pi
+        
+        // Normalize to 0-360 range
         if direction < 0 {
             direction += 360.0
         }

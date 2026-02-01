@@ -28,7 +28,10 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftGribTests",
-            dependencies: ["SwiftGrib"]
+            dependencies: ["SwiftGrib"],
+            resources: [
+                .copy("Resources")
+            ]
         ),
     ]
 )
