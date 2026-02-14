@@ -220,9 +220,14 @@ public final class GribParser: Sendable {
         let day = data[offset+14]
         let hour = data[offset+15]
         let minute = data[offset+16]
-        
+        let timeUnit = data[offset+17]
+        let p1 = data[offset+18]
+        let p2 = data[offset+19]
+        let timeRangeIndicator = data[offset+20]
+        let century: UInt8 = length >= 25 ? data[offset+24] : 0
+
         offset = startOffset + Int(length)
-        
+
         return PDSInfo(
             hasGDS: hasGDS,
             hasBMS: hasBMS,
@@ -233,7 +238,12 @@ public final class GribParser: Sendable {
             month: month,
             day: day,
             hour: hour,
-            minute: minute
+            minute: minute,
+            timeUnit: timeUnit,
+            p1: p1,
+            p2: p2,
+            timeRangeIndicator: timeRangeIndicator,
+            century: century
         )
     }
     
@@ -408,17 +418,47 @@ public final class GribParser: Sendable {
     
     private func makeTimestamp(pds: PDSInfo) -> Date {
         var components = DateComponents()
-        // GRIB1 century handling: year is stored as 2-digit value
-        // Years 0-99 could be 1900s or 2000s depending on the century indicator
-        // Most modern files use 2000+ convention
-        let year = Int(pds.year)
-        components.year = year < 100 ? (year >= 50 ? 1900 + year : 2000 + year) : year
+
+        // Year calculation: use century byte (PDS byte 25) when available
+        // Century 21 + year 26 = (21-1)*100 + 26 = 2026
+        let year: Int
+        if pds.century > 0 {
+            year = (Int(pds.century) - 1) * 100 + Int(pds.year)
+        } else {
+            let y = Int(pds.year)
+            year = y < 100 ? (y >= 50 ? 1900 + y : 2000 + y) : y
+        }
+
+        components.year = year
         components.month = Int(pds.month)
         components.day = Int(pds.day)
         components.hour = Int(pds.hour)
         components.minute = Int(pds.minute)
         components.timeZone = TimeZone(secondsFromGMT: 0)
-        return Calendar(identifier: .gregorian).date(from: components) ?? Date()
+
+        let calendar = Calendar(identifier: .gregorian)
+        guard var date = calendar.date(from: components) else {
+            return Date()
+        }
+
+        // Apply forecast time offset (P1) based on time range indicator
+        // TRI=10: reference time IS the valid time (no offset needed)
+        // TRI=0: forecast valid at reference time + P1
+        if pds.timeRangeIndicator != 10 && pds.p1 > 0 {
+            let offsetSeconds: Int
+            switch pds.timeUnit {
+            case 0:  offsetSeconds = Int(pds.p1) * 60        // minutes
+            case 1:  offsetSeconds = Int(pds.p1) * 3600      // hours
+            case 2:  offsetSeconds = Int(pds.p1) * 86400     // days
+            case 10: offsetSeconds = Int(pds.p1) * 10800     // 3 hours
+            case 11: offsetSeconds = Int(pds.p1) * 21600     // 6 hours
+            case 12: offsetSeconds = Int(pds.p1) * 43200     // 12 hours
+            default: offsetSeconds = Int(pds.p1) * 3600      // default to hours
+            }
+            date = date.addingTimeInterval(TimeInterval(offsetSeconds))
+        }
+
+        return date
     }
     
     private func parameterName(for id: UInt8) -> String {
@@ -477,6 +517,11 @@ private struct PDSInfo {
     let day: UInt8
     let hour: UInt8
     let minute: UInt8
+    let timeUnit: UInt8
+    let p1: UInt8
+    let p2: UInt8
+    let timeRangeIndicator: UInt8
+    let century: UInt8
 }
 
 private struct BDSInfo {

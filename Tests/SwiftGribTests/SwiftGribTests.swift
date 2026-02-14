@@ -268,12 +268,164 @@ struct SwiftGribTests {
     func gribErrorDescriptions() {
         let invalidMagic = GribError.invalidMagic
         #expect(invalidMagic.errorDescription?.contains("valid GRIB data") == true)
-        
+
         let truncated = GribError.truncatedData("PDS")
         #expect(truncated.errorDescription?.contains("PDS") == true)
-        
+
         let unsupported = GribError.unsupportedEdition(2)
         #expect(unsupported.errorDescription?.contains("edition 1") == true)
+
+        let noWind = GribError.noWindDataFound("test detail")
+        #expect(noWind.errorDescription?.contains("test detail") == true)
+    }
+
+    // MARK: - ECMWF Wave File Tests (No Wind Data)
+
+    @Test("Parse ECMWF Wave file successfully")
+    func parseECMWFWaveFile() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        #expect(messages.count > 0, "Wave file should parse successfully")
+        print("Wave file: parsed \(messages.count) messages")
+    }
+
+    @Test("Wave file contains no wind parameters")
+    func waveFileNoWindParameters() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let uWind = messages.filter { $0.parameter.id == GribParameter.uWind }
+        let vWind = messages.filter { $0.parameter.id == GribParameter.vWind }
+        #expect(uWind.isEmpty, "Wave file should not contain U-wind messages")
+        #expect(vWind.isEmpty, "Wave file should not contain V-wind messages")
+    }
+
+    @Test("Wind extraction from wave file returns empty array gracefully")
+    func waveFileWindExtractionEmpty() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        let windData = processor.extractWindData(from: messages)
+        #expect(windData.isEmpty, "Wind extraction from wave-only data should return empty")
+    }
+
+    @Test("Wind extraction throws descriptive error for wave file")
+    func waveFileWindExtractionThrows() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        #expect(throws: GribError.self) {
+            try processor.extractWindDataOrThrow(from: messages)
+        }
+    }
+
+    @Test("hasWindData returns false for wave file")
+    func waveFileHasNoWindData() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        #expect(processor.hasWindData(in: messages) == false)
+    }
+
+    // MARK: - ECMWF WRCTPaG File Tests (Wind + Forecast Time)
+
+    @Test("Parse ECMWF WRCTPaG file successfully")
+    func parseECMWFWindFile() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        #expect(messages.count > 0, "WRCTPaG file should parse successfully")
+        print("WRCTPaG file: parsed \(messages.count) messages")
+    }
+
+    @Test("WRCTPaG file contains wind data")
+    func ecmwfFileContainsWindData() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        #expect(processor.hasWindData(in: messages) == true)
+    }
+
+    @Test("WRCTPaG file has multiple distinct timestamps from forecast offsets")
+    func ecmwfFileMultipleTimestamps() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        let processor = WindProcessor()
+        let timestamps = processor.availableTimestamps(in: messages)
+
+        #expect(timestamps.count > 1, "Should have multiple timestamps (not all collapsed to one)")
+        print("WRCTPaG timestamps: \(timestamps.count)")
+    }
+
+    @Test("WRCTPaG wind extraction produces multiple time steps")
+    func ecmwfWindExtractionMultipleSteps() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        let windData = processor.extractWindData(from: messages, sampleStep: 10)
+
+        #expect(windData.count > 0, "Should extract wind data")
+
+        let windTimestamps = Set(windData.map { $0.timestamp })
+        #expect(windTimestamps.count > 1, "Wind data should span multiple time steps")
+        print("Wind data spans \(windTimestamps.count) time steps")
+    }
+
+    @Test("Existing PWAI file still works after timestamp changes")
+    func pwaiFileRegressionTest() throws {
+        guard let url = Bundle.module.url(forResource: "PWAI_WRCTP_50k_15d_3h_-31N_-44S_157E_145W_20260201_0540", withExtension: "grb", subdirectory: "Resources") else {
+            Issue.record("Test GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        let processor = WindProcessor()
+        let timestamps = processor.availableTimestamps(in: messages)
+        let windData = processor.extractWindData(from: messages, sampleStep: 5)
+
+        #expect(messages.count > 0, "PWAI should still parse")
+        #expect(timestamps.count > 1, "Should still have multiple timestamps")
+        #expect(windData.count > 0, "Should still extract wind data")
     }
 }
 
@@ -517,12 +669,150 @@ final class SwiftGribTests: XCTestCase {
     func testGribErrorDescriptions() {
         let invalidMagic = GribError.invalidMagic
         XCTAssertTrue(invalidMagic.errorDescription?.contains("valid GRIB data") == true)
-        
+
         let truncated = GribError.truncatedData("PDS")
         XCTAssertTrue(truncated.errorDescription?.contains("PDS") == true)
-        
+
         let unsupported = GribError.unsupportedEdition(2)
         XCTAssertTrue(unsupported.errorDescription?.contains("edition 1") == true)
+
+        let noWind = GribError.noWindDataFound("test detail")
+        XCTAssertTrue(noWind.errorDescription?.contains("test detail") == true)
+    }
+
+    // MARK: - ECMWF Wave File Tests (No Wind Data)
+
+    func testParseECMWFWaveFile() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        XCTAssertGreaterThan(messages.count, 0, "Wave file should parse successfully")
+    }
+
+    func testWaveFileNoWindParameters() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let uWind = messages.filter { $0.parameter.id == GribParameter.uWind }
+        let vWind = messages.filter { $0.parameter.id == GribParameter.vWind }
+        XCTAssertTrue(uWind.isEmpty, "Wave file should not contain U-wind messages")
+        XCTAssertTrue(vWind.isEmpty, "Wave file should not contain V-wind messages")
+    }
+
+    func testWaveFileWindExtractionEmpty() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        let windData = processor.extractWindData(from: messages)
+        XCTAssertTrue(windData.isEmpty, "Wind extraction from wave-only data should return empty")
+    }
+
+    func testWaveFileWindExtractionThrows() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        XCTAssertThrowsError(try processor.extractWindDataOrThrow(from: messages)) { error in
+            XCTAssertTrue(error is GribError)
+        }
+    }
+
+    func testWaveFileHasNoWindData() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_Wave_50k_15d_3h_-31N_-44S_157E_145W_20260215_0455", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF Wave GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        XCTAssertFalse(processor.hasWindData(in: messages))
+    }
+
+    // MARK: - ECMWF WRCTPaG File Tests (Wind + Forecast Time)
+
+    func testParseECMWFWindFile() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        XCTAssertGreaterThan(messages.count, 0, "WRCTPaG file should parse successfully")
+    }
+
+    func testEcmwfFileContainsWindData() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        XCTAssertTrue(processor.hasWindData(in: messages))
+    }
+
+    func testEcmwfFileMultipleTimestamps() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        let processor = WindProcessor()
+        let timestamps = processor.availableTimestamps(in: messages)
+
+        XCTAssertGreaterThan(timestamps.count, 1, "Should have multiple timestamps (not all collapsed to one)")
+    }
+
+    func testEcmwfWindExtractionMultipleSteps() throws {
+        guard let url = Bundle.module.url(forResource: "ECMWF_WRCTPaG_50k_15d_3h_-31N_-44S_157E_145W_20260215_0500", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("ECMWF WRCTPaG GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+
+        let processor = WindProcessor()
+        let windData = processor.extractWindData(from: messages, sampleStep: 10)
+
+        XCTAssertGreaterThan(windData.count, 0, "Should extract wind data")
+
+        let windTimestamps = Set(windData.map { $0.timestamp })
+        XCTAssertGreaterThan(windTimestamps.count, 1, "Wind data should span multiple time steps")
+    }
+
+    func testPwaiFileRegressionTest() throws {
+        guard let url = Bundle.module.url(forResource: "PWAI_WRCTP_50k_15d_3h_-31N_-44S_157E_145W_20260201_0540", withExtension: "grb", subdirectory: "Resources") else {
+            XCTFail("Test GRIB file not found")
+            return
+        }
+        let parser = GribParser()
+        let messages = try parser.parse(contentsOf: url)
+        let processor = WindProcessor()
+        let timestamps = processor.availableTimestamps(in: messages)
+        let windData = processor.extractWindData(from: messages, sampleStep: 5)
+
+        XCTAssertGreaterThan(messages.count, 0, "PWAI should still parse")
+        XCTAssertGreaterThan(timestamps.count, 1, "Should still have multiple timestamps")
+        XCTAssertGreaterThan(windData.count, 0, "Should still extract wind data")
     }
 }
 

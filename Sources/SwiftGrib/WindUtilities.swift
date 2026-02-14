@@ -198,6 +198,53 @@ public struct WindProcessor: Sendable {
         return (speed, direction)
     }
     
+    /// Check whether the given messages contain paired U/V wind data.
+    /// - Parameter messages: Array of GRIB messages
+    /// - Returns: True if both U-wind (33) and V-wind (34) parameters are present
+    public func hasWindData(in messages: [GribMessage]) -> Bool {
+        let hasU = messages.contains { $0.parameter.id == GribParameter.uWind }
+        let hasV = messages.contains { $0.parameter.id == GribParameter.vWind }
+        return hasU && hasV
+    }
+
+    /// Extract wind data points, throwing a descriptive error if no wind data is found.
+    ///
+    /// Unlike ``extractWindData(from:sampleStep:)`` which silently returns an empty array,
+    /// this method provides diagnostic feedback about why wind extraction failed.
+    ///
+    /// - Parameters:
+    ///   - messages: Array of GRIB messages
+    ///   - sampleStep: Sample every Nth point (default 1 = all points)
+    /// - Returns: Array of wind data points
+    /// - Throws: ``GribError/noWindDataFound(_:)`` with a diagnostic message
+    public func extractWindDataOrThrow(from messages: [GribMessage], sampleStep: Int = 1) throws -> [WindDataPoint] {
+        let hasUWind = messages.contains { $0.parameter.id == GribParameter.uWind }
+        let hasVWind = messages.contains { $0.parameter.id == GribParameter.vWind }
+
+        if !hasUWind && !hasVWind {
+            let paramIds = Set(messages.map { $0.parameter.id }).sorted()
+            throw GribError.noWindDataFound(
+                "Messages contain no U-wind (33) or V-wind (34) parameters. Found parameter IDs: \(paramIds)"
+            )
+        }
+        if !hasUWind {
+            throw GribError.noWindDataFound("Messages contain V-wind but no U-wind (33) component")
+        }
+        if !hasVWind {
+            throw GribError.noWindDataFound("Messages contain U-wind but no V-wind (34) component")
+        }
+
+        let result = extractWindData(from: messages, sampleStep: sampleStep)
+
+        if result.isEmpty {
+            throw GribError.noWindDataFound(
+                "U-wind and V-wind messages were found but could not be paired by timestamp"
+            )
+        }
+
+        return result
+    }
+
     /// Get available timestamps from a set of messages.
     /// - Parameter messages: Array of GRIB messages
     /// - Returns: Sorted array of unique timestamps

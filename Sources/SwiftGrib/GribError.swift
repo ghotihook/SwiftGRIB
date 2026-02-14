@@ -41,6 +41,10 @@ public enum GribError: Error, LocalizedError, Sendable {
     /// The associated value is the unsupported grid type code.
     case unsupportedGridType(UInt8)
     
+    /// No wind component data found in the messages.
+    /// The associated value provides diagnostic detail about what was missing.
+    case noWindDataFound(String)
+
     /// File could not be read from the specified URL.
     case fileReadError(String)
     
@@ -54,6 +58,8 @@ public enum GribError: Error, LocalizedError, Sendable {
             return "Unsupported GRIB edition: \(edition). Only edition 1 is currently supported."
         case .unsupportedGridType(let type):
             return "Unsupported grid type: \(type)"
+        case .noWindDataFound(let detail):
+            return "No wind data found: \(detail)"
         case .fileReadError(let message):
             return "File read error: \(message)"
         }
